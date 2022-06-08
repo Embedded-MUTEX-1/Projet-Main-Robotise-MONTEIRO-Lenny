@@ -6,7 +6,11 @@
 #include "esp_system.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
+#include "lwip/sockets.h"
+#include "lwip/dns.h"
+#include "lwip/netdb.h"
 #include "esp_log.h"
+#include "mqtt_client.h"
 #include "nvs_flash.h"
 #include "driver/adc.h"
 #include "esp_adc_cal.h"
@@ -65,7 +69,78 @@ static EventGroupHandle_t s_wifi_event_group;
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT      BIT1
 
+#define SSID "Routeur Main Robotisee"
+#define PASSWORD "12345678"
+
 static int s_retry_num = 0; //nombre d'essai de reconnexion au reseau WIFI
+
+esp_mqtt_client_handle_t mqtt_client;
+
+/*
+ * @brief Event handler registered to receive MQTT events
+ *
+ *  This function is called by the MQTT client event loop.
+ *
+ * @param handler_args user data registered to the event.
+ * @param base Event base for the handler(always MQTT Base in this example).
+ * @param event_id The id for the received event.
+ * @param event_data The data for the event, esp_mqtt_event_handle_t.
+ */
+static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data)
+{
+    ESP_LOGD("MQTT", "Event dispatched from event loop base=%s, event_id=%d", base, event_id);
+
+    esp_mqtt_event_handle_t event = event_data;
+    esp_mqtt_client_handle_t client = event->client;
+    int msg_id;
+
+    switch ((esp_mqtt_event_id_t)event_id) {
+    case MQTT_EVENT_CONNECTED:
+        ESP_LOGI("MQTT", "Connecté au brokeur\n");
+        break;
+    case MQTT_EVENT_DISCONNECTED:
+        ESP_LOGI("MQTT", "Déconnecté du brokeur\n");
+        break;
+/* Mis en commentaire car provoque un crash
+    case MQTT_EVENT_SUBSCRIBED:
+        ESP_LOGI("MQTT", "Souscription au topic %s, msg_id=%d\n", event->topic, event->msg_id);
+        break;*/
+    case MQTT_EVENT_UNSUBSCRIBED:
+        ESP_LOGI("MQTT", "Annulation souscription au topic %s, msg_id=%d\n", event->topic, event->msg_id);
+        break;
+    case MQTT_EVENT_PUBLISHED:
+        ESP_LOGI("MQTT", "Publcation sur le topic %s, msg_id=%d\n", event->topic, event->msg_id);
+        break;
+    case MQTT_EVENT_DATA:
+        ESP_LOGI("MQTT", "Reception de donnees\n");
+        printf("TOPIC=%.*s\r\n", event->topic_len, event->topic);
+        printf("DATA=%.*s\r\n", event->data_len, event->data);
+        break;
+    case MQTT_EVENT_ERROR:
+        ESP_LOGI("MQTT", "Erreur\n");
+        if (event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT) {
+            ESP_LOGI("MQTT", "Last errno string (%s)", strerror(event->error_handle->esp_transport_sock_errno));
+        }
+        break;
+    default:
+        ESP_LOGI("MQTT", "Other event id:%d", event->event_id);
+        break;
+    }
+}
+
+//fonction initialisation du client MQTT
+void MQTT_Init()
+{
+    esp_mqtt_client_config_t mqtt_cfg = {
+        .uri = "mqtt://192.168.1.100",//adresse du  routeur
+        .event_handle = NULL,
+    };
+
+    mqtt_client = esp_mqtt_client_init(&mqtt_cfg);// config du  client
+    /* The last argument may be used to pass data to the event handler, in this example mqtt_event_handler */
+    esp_mqtt_client_register_event(mqtt_client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);// enregistrement fonction event
+    esp_mqtt_client_start(mqtt_client);// lancement du client
+}
 
 //fonction gérant les évènements WIFI
 static void event_handler(void* arg, esp_event_base_t event_base,
@@ -126,8 +201,8 @@ void wifi_init()
 
     wifi_config_t wifi_config = {
         .sta = {
-            .ssid = "Routeur Main Robotisee",
-            .password = "12345678",
+            .ssid = SSID,
+            .password = PASSWORD,
             /* Setting a password implies station will connect to all security modes including WEP/WPA.
              * However these modes are deprecated and not advisable to be used. Incase your Access point
              * doesn't support WPA2, these mode can be enabled by commenting below line */
@@ -152,10 +227,10 @@ void wifi_init()
      * happened. */
     if (bits & WIFI_CONNECTED_BIT) {
         ESP_LOGI("wifi", "connected to ap SSID:%s password:%s",
-                 "Routeur Main Robotisee", "12345678");
+                SSID, PASSWORD);
     } else if (bits & WIFI_FAIL_BIT) {
         ESP_LOGI("Wifi", "Failed to connect to SSID:%s, password:%s",
-                "Routeur Main Robotisee", "12345678");
+                SSID, PASSWORD);
     } else {
         ESP_LOGE("Wifi", "UNEXPECTED EVENT");
     }
@@ -199,6 +274,7 @@ void Servo_write_pos(int num_servo, int angle)
 }
 void app_main()
 {
+    
     i2c_example_master_init();// Initialisation de l'I2C
 
     set_pca9685_adress(I2C_ADDRESS);//// Initialisation du PWM Expander
@@ -206,15 +282,30 @@ void app_main()
     setFrequencyPCA9685(50);  // fréquence PWM a 50Hz
     turnAllOff();//met toutes les consigne à zero
 
-    gpio_set_direction(LED, GPIO_MODE_OUTPUT);
-
-    printf("Finished setup, entering loop now\n");
+    gpio_set_direction(LED, GPIO_MODE_OUTPUT); //led 
 
     NVS_Init();
     wifi_init();
 
+    vTaskDelay(1000 / portTICK_PERIOD_MS);//Attent que le esp32 se connecte au routeur wifi
+    
+    MQTT_Init();
+
+    vTaskDelay(1000 / portTICK_PERIOD_MS);//Attent que le client se connecte au brokeur
+
+    /* le code ci-dessous permet de tester le client MQTT */
+    esp_mqtt_client_subscribe(mqtt_client, "test", 1);
+    int count = 0;
+
     while(1)
     { 
+        char text[10] = "";
+        sprintf(text, "count = %d", count);
 
+        esp_mqtt_client_publish(mqtt_client, "Topic", text, strlen(text), 0, 0);
+
+        vTaskDelay(5000 / portTICK_PERIOD_MS);
+
+        count++;
     }
 }
