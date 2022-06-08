@@ -293,19 +293,24 @@ void app_main()
 
     vTaskDelay(1000 / portTICK_PERIOD_MS);//Attent que le client se connecte au brokeur
 
-    /* le code ci-dessous permet de tester le client MQTT */
-    esp_mqtt_client_subscribe(mqtt_client, "test", 1);
-    int count = 0;
+    /* Souscription aux topics "Doigt0"(Pouce) "Doigt1", "Doigt2", "Doigt3*, "Doigt4" 
+
+      Fonctionnement:
+      La carte équipée de capteurs transmettra pour chaque doigt une valaur entre O et 100,
+      0 pour un doigt complètement plié, 100 pour un doigt complètement ouvert, en fonction 
+      des valeurs reçues via MQTT les doigs robotisés doivent plus ou moins s'ouvrir.
+
+      Le traitement des données reçues se fait dans la fonction "mqtt_event_handler".
+
+    */
+    esp_mqtt_client_subscribe(mqtt_client, "Doigt0", 0);
+    esp_mqtt_client_subscribe(mqtt_client, "Doigt1", 0);
+    esp_mqtt_client_subscribe(mqtt_client, "Doigt2", 0);
+    esp_mqtt_client_subscribe(mqtt_client, "Doigt3", 0);
+    esp_mqtt_client_subscribe(mqtt_client, "Doigt4", 0);
 
     while(1)
     { 
-        char text[10] = "";
-        sprintf(text, "count = %d", count);
-
-        esp_mqtt_client_publish(mqtt_client, "Topic", text, strlen(text), 0, 0);
-
-        vTaskDelay(5000 / portTICK_PERIOD_MS);
-
-        count++;
+        
     }
 }
