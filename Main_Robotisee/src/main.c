@@ -76,6 +76,10 @@ static int s_retry_num = 0; //nombre d'essai de reconnexion au reseau WIFI
 
 esp_mqtt_client_handle_t mqtt_client;
 
+void CalculeConsigne(int in, int* angle_M1, int* angle_M2, int* angle_M3);
+void CalculeConsigne_pouce(int in, int* angle_M1, int* angle_M2, int* angle_M3);
+void Servo_write_pos(int num_servo, int angle);
+
 /*
  * @brief Event handler registered to receive MQTT events
  *
@@ -90,7 +94,13 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 {
     ESP_LOGD("MQTT", "Event dispatched from event loop base=%s, event_id=%d", base, event_id);
 
-    esp_mqtt_event_handle_t event = event_data;
+    esp_mqtt_event_handle_t event;
+    /*
+    for(int i = 0;i < 10;i++)
+    {
+        event->data[i] = 0;
+    }*/
+    event =  (esp_mqtt_event_handle_t)event_data;
     esp_mqtt_client_handle_t client = event->client;
     int msg_id;
 
@@ -113,8 +123,67 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
         break;
     case MQTT_EVENT_DATA:
         ESP_LOGI("MQTT", "Reception de donnees\n");
-        printf("TOPIC=%.*s\r\n", event->topic_len, event->topic);
-        printf("DATA=%.*s\r\n", event->data_len, event->data);
+        printf("TOPIC=%s, Len=%d\r\n", event->topic, event->topic_len);
+        printf("DATA=%s, Len=%d\r\n", event->data, event->data_len);
+
+        int M1, M2, M3 = 0; //Angle de consigne de chaque moteur
+        int valeur = 0;// valeur reçu via MQTT
+        char topic[10];
+
+        strcpy(topic, event->topic);
+
+        if(strstr(event->topic, "Doigt0") != NULL)
+        {
+            valeur = atoi(event->data);//conversion strint vers int
+
+            CalculeConsigne_pouce(valeur, &M1, &M2, &M3);//Calcule consigne
+            
+            Servo_write_pos(D0M2, M2);
+            Servo_write_pos(D0M3, M3);
+        }
+        else if(strstr(event->topic, "Doigt1") != NULL)
+        {
+            valeur = atoi(event->data);//conversion strint vers int
+
+            CalculeConsigne(valeur, &M1, &M2, &M3);//Calcule consigne
+            
+            Servo_write_pos(D1M1, M1);
+            Servo_write_pos(D1M2, M2);
+            Servo_write_pos(D1M3, M3);
+        }
+        else if(strstr(event->topic, "Doigt2") != NULL)
+        {
+            valeur = atoi(event->data);//conversion strint vers int
+
+            CalculeConsigne(valeur, &M1, &M2, &M3);//Calcule consigne
+            
+            Servo_write_pos(D2M1, M1);
+            Servo_write_pos(D2M2, M2);
+            Servo_write_pos(D2M3, M3);
+        }
+        else if(strstr(event->topic, "Doigt3") != NULL)
+        {
+            valeur = atoi(event->data);//conversion strint vers int
+
+            CalculeConsigne(valeur, &M1, &M2, &M3);//Calcule consigne
+            
+            Servo_write_pos(D3M1, M1);
+            Servo_write_pos(D3M2, M2);
+            Servo_write_pos(D3M3, M3);
+        }
+        else if(strstr(event->topic, "Doigt4") != NULL)
+        {
+            valeur = atoi(event->data);//conversion strint vers int
+
+            CalculeConsigne(valeur, &M1, &M2, &M3);//Calcule consigne
+            
+            Servo_write_pos(D4M1, M1);
+            Servo_write_pos(D4M2, M2);
+            Servo_write_pos(D4M3, M3);
+        }
+
+        ESP_LOGI("Valeurs", "valeur = %d M1 = %d M2 = %d M3 = %d", valeur, M1, M2, M3);
+
         break;
     case MQTT_EVENT_ERROR:
         ESP_LOGI("MQTT", "Erreur\n");
@@ -296,7 +365,7 @@ void app_main()
     /* Souscription aux topics "Doigt0"(Pouce) "Doigt1", "Doigt2", "Doigt3*, "Doigt4" 
 
       Fonctionnement:
-      La carte équipée de capteurs transmettra pour chaque doigt une valaur entre O et 100,
+      La carte équipée de capteurs transmettra pour chaque doigt une valeur entre O et 100,
       0 pour un doigt complètement plié, 100 pour un doigt complètement ouvert, en fonction 
       des valeurs reçues via MQTT les doigs robotisés doivent plus ou moins s'ouvrir.
 
@@ -311,6 +380,21 @@ void app_main()
 
     while(1)
     { 
-        
+        Servo_write_pos(D0M1, 45);// pas beson du calcul pour le moteur1 du pouce
     }
+}
+/* Cette fonction permet de calculer les consignes angles de chaque moteur d'un doigts à envoyer 
+   à la fonction "Servo_write_pos" en fonction la valeur (0 et 100) reçu via le protocole MQTT */
+void CalculeConsigne(int in, int* angle_M1, int* angle_M2, int* angle_M3)
+{
+    *angle_M1 = (int)(1.25 * in + 45);
+    *angle_M2 = (int)(0.63 * in + 107);
+    *angle_M3 = (int)(1.05 * in + 60);
+}
+/* Même fonction mais pour le pouce */
+void CalculeConsigne_pouce(int in, int* angle_M1, int* angle_M2, int* angle_M3)
+{
+    *angle_M1 = (int)(1.2 * in + 45);
+    *angle_M2 = (int)(1.21 * in + 39);
+    *angle_M3 = (int)(1.21 * in + 56);
 }
